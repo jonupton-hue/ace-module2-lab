@@ -53,32 +53,43 @@ export function getUserProfile () {
 
     if (username?.match(/#{(.*)}/) !== null && utils.isChallengeEnabled(challenges.usernameXssChallenge)) {
       req.app.locals.abused_ssti_bug = true
-      const code = username?.substring(2, username.length - 1)
+      const match = username.match(/#{(.*)}/)
+      const code = match ? match[1] : null
       try {
         if (!code) {
           throw new Error('Username is null')
         }
-        const singleQuoteRegex = /^'(?:[^'\\]|\\.)*'$/
-        const doubleQuoteRegex = /^"(?:[^"\\]|\\.)*"$/
-        const backtickRegex = /^`(?:[^`\\$]|\\.|\$(?!{))*`$/
+        const singleQuoteRegex = /^'(?:[^'\\\r\n]|\\.)*'$/
+        const doubleQuoteRegex = /^"(?:[^"\\\r\n]|\\.)*"$/
+        const backtickRegex = /^`(?:[^`\\$\r\n]|\\.|\$(?!{))*`$/
         const numericRegex = /^-?\d+(?:\.\d+)?$/
+        const arithmeticRegex = /^[\s0-9+\-*\/%().]*\d[\s0-9+\-*\/%().]*$/
         const booleanRegex = /^(?:true|false|null|undefined)$/
 
         const isSafe = singleQuoteRegex.test(code) ||
           doubleQuoteRegex.test(code) ||
           backtickRegex.test(code) ||
           numericRegex.test(code) ||
+          arithmeticRegex.test(code) ||
           booleanRegex.test(code)
 
         if (!isSafe) {
           throw new Error('Unsafe code execution blocked')
         }
-        username = eval(code) // eslint-disable-line no-eval
+        const evaluated = String(eval(code)) // eslint-disable-line no-eval
+        username = username.replace(match![0], evaluated)
       } catch (err) {
+        username = username.replace(/\\/g, '\\\\').replace(/([#!]\{)/g, '\\$1')
+      }
+    } else if (username) {
+      username = username.replace(/\\/g, '\\\\').replace(/([#!]\{)/g, '\\$1')
+    }
+
+    if (username) {
+      username = username.replace(/[\r\n]/g, '')
+      if (!username.startsWith('\\')) {
         username = '\\' + username
       }
-    } else {
-      username = '\\' + username
     }
 
     const themeKey = config.get<string>('application.theme') as keyof typeof themes
